@@ -82,6 +82,13 @@ ApplicationWindow {
         updateCollections()
         refreshStamps()
     }
+    // асинхронные фото
+    Connections {
+        target: stamps
+        function onStampImageUpdated(stampId) {
+            forceRefreshStamps()
+        }
+    }
 
     ColumnLayout {
         anchors.fill: parent
