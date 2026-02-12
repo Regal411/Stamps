@@ -212,6 +212,7 @@ ApplicationWindow {
             Layout.fillHeight: true
             spacing: 8
             model: stampsModel
+            clip: true
 
             delegate: Rectangle {
                 width: ListView.view.width
