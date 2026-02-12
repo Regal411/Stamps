@@ -44,6 +44,9 @@ ApplicationWindow {
     property string collectionOldName: ""
     property string searchText: ""
 
+    property int savedContentY: 0
+    property int savedCurrentIndex: -1
+
     // Функция для обновления коллекций
     function updateCollections() {
         collectionsModel = collections.getAllCollections()
@@ -60,7 +63,6 @@ ApplicationWindow {
         // Фильтр по поиску
         if (searchText.length > 0) {
             var text = searchText.toLowerCase()
-
             all = all.filter(s =>
                 s.title.toLowerCase().includes(text) ||
                 s.country.toLowerCase().includes(text) ||
@@ -68,14 +70,24 @@ ApplicationWindow {
             )
         }
 
-        stampsModel = all
+        stampsModel.length = 0
+        Array.prototype.push.apply(stampsModel, all)
+
+        stampsListView.model = stampsModel
     }
 
-    // Функция для принудительного обновления ListView
     function forceRefreshStamps() {
+
+        savedContentY = stampsListView.contentY
+        savedCurrentIndex = stampsListView.currentIndex
+
         refreshStamps()
-        stampsListView.model = []
-        stampsListView.model = stampsModel
+
+
+        Qt.callLater(function() {
+            stampsListView.contentY = savedContentY
+            stampsListView.currentIndex = savedCurrentIndex
+        })
     }
 
     Component.onCompleted: {
