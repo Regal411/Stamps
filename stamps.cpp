@@ -5,12 +5,13 @@
 #include <QDir>
 #include <QFileInfo>
 
+#include <QtConcurrent/QtConcurrent>
+#include <QFutureWatcher>
+
 Stamps::Stamps(QSqlDatabase db, QObject *parent)
     : QObject(parent), m_db(db)
 {
 }
-
-
 
 QString Stamps::processAndSaveImage(const QString &sourcePath, int stampId)
 {
@@ -35,7 +36,7 @@ QString Stamps::processAndSaveImage(const QString &sourcePath, int stampId)
         (image.height() - side) / 2,
         side,
         side
-        );
+    );
 
     QImage cropped = image.copy(crop)
                          .scaled(155, 155,
@@ -51,7 +52,6 @@ QString Stamps::processAndSaveImage(const QString &sourcePath, int stampId)
     return filePath;
 }
 
-
 bool Stamps::addStamp(const QString &title,
                       const QString &country,
                       int year,
@@ -65,9 +65,9 @@ bool Stamps::addStamp(const QString &title,
 
     query.prepare(
         "INSERT INTO stamps "
-        "(title,country,year,category,count,collection_id,image,rare) "
-        "VALUES(?,?,?,?,?,?,'',?)"
-        );
+        "(title, country, year, category, count, collection_id, image, rare) "
+        "VALUES (?, ?, ?, ?, ?, ?, '', ?)"
+    );
 
     query.addBindValue(title);
     query.addBindValue(country);
@@ -82,14 +82,27 @@ bool Stamps::addStamp(const QString &title,
 
     int id = query.lastInsertId().toInt();
 
-    QString img = processAndSaveImage(image, id);
+    if (!image.isEmpty()) {
+        // Асинхронная обработка изображения — QtConcurrent с лямбдой
+        auto *watcher = new QFutureWatcher<QString>(this);
+        connect(watcher, &QFutureWatcher<QString>::finished, this,
+                [this, watcher, id]() {
+                    QString newPath = watcher->result();
+                    if (!newPath.isEmpty()) {
+                        QSqlQuery q(m_db);
+                        q.prepare("UPDATE stamps SET image=? WHERE id=?");
+                        q.addBindValue(newPath);
+                        q.addBindValue(id);
+                        q.exec();
+                    }
+                    emit stampImageUpdated(id);
+                    watcher->deleteLater();
+                });
 
-    if (!img.isEmpty()) {
-        QSqlQuery q(m_db);
-        q.prepare("UPDATE stamps SET image=? WHERE id=?");
-        q.addBindValue(img);
-        q.addBindValue(id);
-        q.exec();
+        QFuture<QString> future = QtConcurrent::run([this, image, id]() {
+            return processAndSaveImage(image, id);
+        });
+        watcher->setFuture(future);
     }
 
     return true;
@@ -109,10 +122,10 @@ bool Stamps::updateStamp(int id,
 
     query.prepare(
         "UPDATE stamps SET "
-        "title=?,country=?,year=?,category=?,"
-        "count=?,collection_id=?,rare=? "
+        "title=?, country=?, year=?, category=?, "
+        "count=?, collection_id=?, rare=? "
         "WHERE id=?"
-        );
+    );
 
     query.addBindValue(title);
     query.addBindValue(country);
@@ -127,15 +140,25 @@ bool Stamps::updateStamp(int id,
         return false;
 
     if (!image.isEmpty()) {
-        QString img = processAndSaveImage(image, id);
+        auto *watcher = new QFutureWatcher<QString>(this);
+        connect(watcher, &QFutureWatcher<QString>::finished, this,
+                [this, watcher, id]() {
+                    QString newPath = watcher->result();
+                    if (!newPath.isEmpty()) {
+                        QSqlQuery q(m_db);
+                        q.prepare("UPDATE stamps SET image=? WHERE id=?");
+                        q.addBindValue(newPath);
+                        q.addBindValue(id);
+                        q.exec();
+                    }
+                    emit stampImageUpdated(id);
+                    watcher->deleteLater();
+                });
 
-        if (!img.isEmpty()) {
-            QSqlQuery q(m_db);
-            q.prepare("UPDATE stamps SET image=? WHERE id=?");
-            q.addBindValue(img);
-            q.addBindValue(id);
-            q.exec();
-        }
+        QFuture<QString> future = QtConcurrent::run([this, image, id]() {
+            return processAndSaveImage(image, id);
+        });
+        watcher->setFuture(future);
     }
 
     return true;
@@ -159,13 +182,12 @@ QVariantList Stamps::getAllStamps()
         "SELECT stamps.*, collections.name AS collectionName "
         "FROM stamps "
         "LEFT JOIN collections "
-        "ON stamps.collection_id=collections.id "
+        "ON stamps.collection_id = collections.id "
         "ORDER BY stamps.id DESC",
         m_db
-        );
+    );
 
     while (query.next()) {
-
         QVariantMap s;
 
         s["stampId"] = query.value("id");
@@ -195,21 +217,18 @@ QVariantList Stamps::searchStamps(const QString &searchTerm)
         "SELECT stamps.*, collections.name AS collectionName "
         "FROM stamps "
         "LEFT JOIN collections "
-        "ON stamps.collection_id=collections.id "
+        "ON stamps.collection_id = collections.id "
         "WHERE title LIKE ? OR country LIKE ? OR category LIKE ? "
         "ORDER BY stamps.id DESC"
-        );
+    );
 
     QString p = "%" + searchTerm + "%";
-
     query.addBindValue(p);
     query.addBindValue(p);
     query.addBindValue(p);
-
     query.exec();
 
     while (query.next()) {
-
         QVariantMap s;
 
         s["stampId"] = query.value("id");
@@ -233,10 +252,7 @@ bool Stamps::moveStampsToCollection(int fromId, int toId)
 {
     QSqlQuery query(m_db);
 
-    query.prepare(
-        "UPDATE stamps SET collection_id=? WHERE collection_id=?"
-        );
-
+    query.prepare("UPDATE stamps SET collection_id=? WHERE collection_id=?");
     query.addBindValue(toId);
     query.addBindValue(fromId);
 
