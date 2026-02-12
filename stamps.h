@@ -39,6 +39,9 @@ public:
     Q_INVOKABLE bool moveStampsToCollection(int fromId, int toId);
     Q_INVOKABLE bool deleteStampsByCollection(int collectionId);
 
+signals:
+    void stampImageUpdated(int stampId);
+
 private:
     QString processAndSaveImage(const QString &sourcePath, int stampId);
 
